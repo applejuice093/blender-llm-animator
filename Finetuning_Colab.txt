@@ -163,7 +163,7 @@
     "    train_dataset = dataset,\n",
     "    dataset_text_field = \"text\",\n",
     "    max_seq_length = MAX_SEQ_LENGTH,\n",
-    "    dataset_num_proc = 2,\n",
+    "    dataset_num_proc = 1,\n",
     "    packing = False,\n",
     "    args = TrainingArguments(\n",
     "        per_device_train_batch_size = 2,\n",
