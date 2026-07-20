@@ -1,0 +1,240 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Animation Planning Model Fine-Tuning with Unsloth (Colab)\n",
+    "\n",
+    "This notebook trains a custom **Qwen2.5-3B-Instruct** LoRA adapter using **Unsloth** on Google Colab, and exports the final model directly to a **GGUF** format ready for use in **Ollama**.\n",
+    "\n",
+    "### Instructions:\n",
+    "1. Go to **Runtime > Change runtime type** and select a GPU (e.g. T4 GPU or better).\n",
+    "2. Run **Cell 1** to install Unsloth and dependencies.\n",
+    "3. Run **Cell 2** to upload your `.jsonl` dataset files from your local `backend/datasets/` folder.\n",
+    "4. Run **Cell 3** to start the fine-tuning training loop.\n",
+    "5. Run **Cell 4** to export the GGUF file and download it back to your local machine."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 1: Install Unsloth & Dependencies"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/"
+    },
+    "id": "install_deps"
+   },
+   "outputs": [],
+   "source": [
+    "# Install Unsloth for fast 4-bit fine-tuning\n",
+    "!pip install --upgrade --no-cache-dir \"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\" unsloth_zoo\n",
+    "!pip install --no-deps xformers trl peft accelerate bitsandbytes"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 2: Upload your Dataset (.jsonl files)\n",
+    "Click the button below and select the `.jsonl` files from your `Finetuning/backend/datasets/` directory."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "id": "upload_files"
+   },
+   "outputs": [],
+   "source": [
+    "from google.colab import files\n",
+    "import os\n",
+    "\n",
+    "# Create datasets directory in Colab\n",
+    "os.makedirs(\"datasets\", exist_ok=True)\n",
+    "\n",
+    "uploaded = files.upload()\n",
+    "for filename in uploaded.keys():\n",
+    "    # Move files to datasets directory\n",
+    "    os.rename(filename, os.path.join(\"datasets\", filename))\n",
+    "print(\"Uploaded files loaded into Colab datasets directory.\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 3: Load Data & Start Training"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "id": "training_loop"
+   },
+   "outputs": [],
+   "source": [
+    "import os\n",
+    "import json\n",
+    "import glob\n",
+    "import torch\n",
+    "from unsloth import FastLanguageModel\n",
+    "from trl import SFTTrainer\n",
+    "from transformers import TrainingArguments\n",
+    "from datasets import Dataset\n",
+    "\n",
+    "MAX_SEQ_LENGTH = 2048\n",
+    "MODEL_NAME = \"unsloth/Qwen2.5-3B-Instruct\"\n",
+    "DATASET_DIR = \"datasets\"\n",
+    "OUTPUT_DIR = \"lora_output\"\n",
+    "\n",
+    "def load_data():\n",
+    "    records = []\n",
+    "    for filepath in glob.glob(os.path.join(DATASET_DIR, \"*.jsonl\")):\n",
+    "        with open(filepath, \"r\") as f:\n",
+    "            for line in f:\n",
+    "                record = json.loads(line)\n",
+    "                \n",
+    "                # Extract the correct final plan (uses repaired plan if polished failed, else polished_plan)\n",
+    "                final_plan = record.get(\"fixed_plan\") if record.get(\"fixed_validation_success\") else record.get(\"polished_plan\")\n",
+    "                \n",
+    "                # Make sure the record succeeded in validation\n",
+    "                if final_plan and (record.get(\"validation_success\") or record.get(\"fixed_validation_success\")):\n",
+    "                    instruction = f\"Character: {record['character']}\\nRequest: {record['prompt']}\\nGenerate the JSON animation plan.\"\n",
+    "                    response = json.dumps(final_plan)\n",
+    "                    records.append({\n",
+    "                        \"instruction\": instruction,\n",
+    "                        \"output\": response\n",
+    "                    })\n",
+    "    if len(records) > 0:\n",
+    "        return Dataset.from_list(records)\n",
+    "    return None\n",
+    "\n",
+    "def format_prompt(examples):\n",
+    "    system_prompt = \"You are an expert animation director. You must output a valid JSON object representing an animation intent plan, and NOTHING ELSE.\"\n",
+    "    texts = []\n",
+    "    for instruction, output in zip(examples[\"instruction\"], examples[\"output\"]):\n",
+    "        text = f\"<|im_start|>system\\n{system_prompt}<|im_end|>\\n<|im_start|>user\\n{instruction}<|im_end|>\\n<|im_start|>assistant\\n{output}<|im_end|>\"\n",
+    "        texts.append(text)\n",
+    "    return {\"text\": texts}\n",
+    "\n",
+    "print(\"Loading datasets...\")\n",
+    "dataset = load_data()\n",
+    "if not dataset:\n",
+    "    raise ValueError(\"No valid training records found in uploaded files. Ensure they passed validation!\")\n",
+    "\n",
+    "print(f\"Found {len(dataset)} examples. Formatting prompts...\")\n",
+    "dataset = dataset.map(format_prompt, batched=True)\n",
+    "\n",
+    "print(\"Loading Base Qwen2.5-3B-Instruct model in 4-bit...\")\n",
+    "model, tokenizer = FastLanguageModel.from_pretrained(\n",
+    "    model_name = MODEL_NAME,\n",
+    "    max_seq_length = MAX_SEQ_LENGTH,\n",
+    "    dtype = None,\n",
+    "    load_in_4bit = True,\n",
+    ")\n",
+    "\n",
+    "model = FastLanguageModel.get_peft_model(\n",
+    "    model,\n",
+    "    r = 16,\n",
+    "    target_modules = [\"q_proj\", \"k_proj\", \"v_proj\", \"o_proj\",\n",
+    "                      \"gate_proj\", \"up_proj\", \"down_proj\"],\n",
+    "    lora_alpha = 16,\n",
+    "    lora_dropout = 0,\n",
+    "    bias = \"none\",\n",
+    "    use_gradient_checkpointing = \"unsloth\",\n",
+    "    random_state = 3407,\n",
+    "    use_rslora = False,\n",
+    "    loftq_config = None,\n",
+    ")\n",
+    "\n",
+    "trainer = SFTTrainer(\n",
+    "    model = model,\n",
+    "    tokenizer = tokenizer,\n",
+    "    train_dataset = dataset,\n",
+    "    dataset_text_field = \"text\",\n",
+    "    max_seq_length = MAX_SEQ_LENGTH,\n",
+    "    dataset_num_proc = 2,\n",
+    "    packing = False,\n",
+    "    args = TrainingArguments(\n",
+    "        per_device_train_batch_size = 2,\n",
+    "        gradient_accumulation_steps = 4,\n",
+    "        warmup_steps = 5,\n",
+    "        max_steps = 60, # Feel free to increase this to 100 or 150 for larger datasets\n",
+    "        learning_rate = 2e-4,\n",
+    "        fp16 = not torch.cuda.is_bf16_supported(),\n",
+    "        bf16 = torch.cuda.is_bf16_supported(),\n",
+    "        logging_steps = 1,\n",
+    "        optim = \"adamw_8bit\",\n",
+    "        weight_decay = 0.01,\n",
+    "        lr_scheduler_type = \"linear\",\n",
+    "        seed = 3407,\n",
+    "        output_dir = \"outputs\",\n",
+    "        average_tokens_across_devices = False,\n",
+    "    ),\n",
+    ")\n",
+    "\n",
+    "print(\"Starting fine-tuning...\")\n",
+    "trainer.train()\n",
+    "print(\"LoRA adapter training completed.\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Cell 4: Export to GGUF and Download"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "id": "export_gguf"
+   },
+   "outputs": [],
+   "source": [
+    "print(\"Saving trained model adapters...\")\n",
+    "model.save_pretrained(OUTPUT_DIR)\n",
+    "tokenizer.save_pretrained(OUTPUT_DIR)\n",
+    "\n",
+    "print(\"Quantizing and merging model to GGUF (q4_k_m)... This may take a minute...\")\n",
+    "model.save_pretrained_gguf(OUTPUT_DIR, tokenizer, quantization_method = \"q4_k_m\")\n",
+    "\n",
+    "# Find the generated GGUF file\n",
+    "import glob\n",
+    "gguf_files = glob.glob(os.path.join(OUTPUT_DIR, \"*q4_k_m.gguf\"))\n",
+    "\n",
+    "if gguf_files:\n",
+    "    target_file = gguf_files[0]\n",
+    "    print(f\"Found GGUF model: {target_file}. Downloading...\")\n",
+    "    files.download(target_file)\n",
+    "else:\n",
+    "    print(\"Could not find the exported GGUF file. Check the lora_output directory in the Colab file browser.\")"
+   ]
+  }
+ ],
+ "metadata": {
+  "colab": {
+   "provenance": []
+  },
+  "kernelspec": {
+   "display_name": "Python 3",
+   "name": "python3"
+  },
+  "language_info": {
+   "name": "python"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 0
+}
