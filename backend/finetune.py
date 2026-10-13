@@ -1,9 +1,19 @@
-import os
-import json
+"""Local Unsloth QLoRA fine-tuning entry point (WSL/Linux + CUDA).
+
+Reads the ``*.jsonl`` records written by dataset_factory.py, keeps only plans
+that passed validation (preferring the self-repaired plan when the polished one
+failed), trains a LoRA adapter and exports a Q4_K_M GGUF for Ollama.
+
+Install the optional training stack first:  pip install -r requirements-finetune.txt
+"""
+
 import glob
-import torch
+import json
+import os
+import sys
 
 try:
+    import torch
     from unsloth import FastLanguageModel
     from trl import SFTTrainer
     from transformers import TrainingArguments
@@ -13,25 +23,43 @@ except ImportError:
     print("To run this script, please install Unsloth in a WSL environment:")
     print("pip install unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git")
     print("pip install --no-deps xformers trl peft accelerate bitsandbytes")
+    if __name__ == "__main__":
+        sys.exit(1)
 
 MAX_SEQ_LENGTH = 2048 # Fits in 6GB VRAM
 MODEL_NAME = "unsloth/Qwen2.5-3B-Instruct" 
-DATASET_DIR = "datasets"
-OUTPUT_DIR = "lora_output"
+DATASET_DIR = os.environ.get("DATASET_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "datasets"))
+OUTPUT_DIR = os.environ.get("LORA_OUTPUT_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "lora_output"))
+
+
+def select_training_plan(record: dict):
+    """Return the plan to train on, or None if the record never validated.
+
+    Mirrors the logic in Finetuning_Colab/Kaggle: use ``fixed_plan`` when the
+    self-repair loop succeeded, else ``polished_plan`` when it validated first time.
+    """
+    if record.get("fixed_validation_success") and record.get("fixed_plan"):
+        return record["fixed_plan"]
+    if record.get("validation_success") and record.get("polished_plan"):
+        return record["polished_plan"]
+    return None
 
 def load_data():
     records = []
     for filepath in glob.glob(os.path.join(DATASET_DIR, "*.jsonl")):
         with open(filepath, "r") as f:
             for line in f:
+                if not line.strip():
+                    continue
                 record = json.loads(line)
-                if record.get("validation_success", False):
-                    instruction = f"Character: {record['character']}\nRequest: {record['prompt']}\nGenerate the JSON animation plan."
-                    response = json.dumps(record['plan'])
-                    records.append({
-                        "instruction": instruction,
-                        "output": response
-                    })
+                plan = select_training_plan(record)
+                if plan is None:
+                    continue
+                instruction = f"Character: {record['character']}\nRequest: {record['prompt']}\nGenerate the JSON animation plan."
+                records.append({
+                    "instruction": instruction,
+                    "output": json.dumps(plan),
+                })
     if len(records) > 0:
         return Dataset.from_list(records)
     return None
@@ -82,7 +110,7 @@ def main():
         train_dataset = dataset,
         dataset_text_field = "text",
         max_seq_length = MAX_SEQ_LENGTH,
-        dataset_num_proc = 2,
+        dataset_num_proc = 1,  # >1 triggers PicklingError when saving checkpoints
         packing = False,
         args = TrainingArguments(
             per_device_train_batch_size = 2,

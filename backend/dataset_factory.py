@@ -1,15 +1,25 @@
+"""Synthetic dataset generation: draft -> critique -> polish -> validate -> repair.
+
+Each prompt produces one JSONL record in ``DATASET_DIR`` containing every layer
+of the pipeline, which finetune.py and the Colab/Kaggle notebooks consume.
+"""
+
 import json
+import logging
 import os
 import uuid
-from llm_planner import generate_plan_with_critique
-from plan_compiler import compile_plan
-from models import AnimationIntentPlan
 
-DATASET_DIR = "datasets"
-if not os.path.exists(DATASET_DIR):
-    os.makedirs(DATASET_DIR)
+from config import DATASET_DIR
+from llm_planner import generate_plan_with_critique
+from models import AnimationIntentPlan
+from plan_compiler import compile_plan
+
+logger = logging.getLogger(__name__)
+
 
 def generate_dataset_batch(character: str, prompts: list, scene_context: str = "") -> dict:
+    """Run the full generation pipeline for each prompt and append to a new batch file."""
+    os.makedirs(DATASET_DIR, exist_ok=True)
     batch_id = str(uuid.uuid4())[:8]
     filename = os.path.join(DATASET_DIR, f"batch_{batch_id}.jsonl")
     
@@ -45,7 +55,7 @@ def generate_dataset_batch(character: str, prompts: list, scene_context: str = "
             
         # 3. Self-Repair Loop if validation failed (and it's not a fallback mock plan)
         if not validation_success and polished_plan.get("reasoning") != "MOCK_REASONING":
-            print(f"Validation failed for prompt: '{prompt}'. Initiating self-repair...")
+            logger.info("Validation failed for prompt %r. Initiating self-repair...", prompt)
             from llm_planner import repair_plan
             
             fixed_plan = repair_plan(polished_plan, validation_error)
@@ -82,7 +92,7 @@ def generate_dataset_batch(character: str, prompts: list, scene_context: str = "
         }
         results.append(record)
         
-        with open(filename, 'a') as f:
+        with open(filename, 'a', encoding='utf-8') as f:
             f.write(json.dumps(record) + "\n")
             
     return {
@@ -94,12 +104,15 @@ def generate_dataset_batch(character: str, prompts: list, scene_context: str = "
     }
 
 def list_datasets():
+    """List ``*.jsonl`` batch files with their record counts (empty if none yet)."""
+    if not os.path.isdir(DATASET_DIR):
+        return []
     datasets = []
-    for f in os.listdir(DATASET_DIR):
+    for f in sorted(os.listdir(DATASET_DIR)):
         if f.endswith(".jsonl"):
             filepath = os.path.join(DATASET_DIR, f)
-            with open(filepath, 'r') as file:
-                count = sum(1 for line in file)
+            with open(filepath, 'r', encoding='utf-8') as file:
+                count = sum(1 for line in file if line.strip())
             datasets.append({
                 "filename": f,
                 "record_count": count

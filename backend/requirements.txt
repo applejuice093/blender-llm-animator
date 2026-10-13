@@ -1,4 +1,10 @@
-fastapi
-uvicorn[standard]
-chromadb
-pydantic
+# Core API runtime (python -m pip install -r requirements.txt)
+# Everything imported by main.py and the modules it loads.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.5          # field_validator / model_validator (v2 API)
+chromadb>=0.4.22       # PersistentClient + collection.upsert; pulls in onnxruntime for embeddings
+
+# Optional groups live in separate files so the API stays lightweight:
+#   requirements-dev.txt       -> pytest + httpx for the test suite
+#   requirements-finetune.txt  -> Unsloth/TRL stack for finetune.py (CUDA GPU, Linux/WSL)

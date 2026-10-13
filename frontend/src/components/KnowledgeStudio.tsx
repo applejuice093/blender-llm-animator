@@ -1,6 +1,5 @@
 import { useState } from 'react';
-
-const API_URL = 'http://localhost:8000';
+import { postJson } from '../api';
 
 export default function KnowledgeStudio() {
   const [addContent, setAddContent] = useState('');
@@ -14,36 +13,26 @@ export default function KnowledgeStudio() {
   const handleAdd = async () => {
     try {
       setAddStatus('Adding...');
-      const response = await fetch(`${API_URL}/api/knowledge/add`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: addContent,
-          doc_id: docId || undefined,
-        })
+      const data = await postJson<{ doc_id: string }>('/api/knowledge/add', {
+        content: addContent,
+        doc_id: docId || undefined,
       });
-      const data = await response.json();
       setAddStatus(`Success! Document ID: ${data.doc_id}`);
       setAddContent('');
       setDocId('');
-    } catch (e: any) {
-      setAddStatus(`Error: ${e.message}`);
+    } catch (e: unknown) {
+      setAddStatus(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
   const handleQuery = async () => {
     try {
       setQueryStatus('Searching...');
-      const response = await fetch(`${API_URL}/api/knowledge/query`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
-      });
-      const data = await response.json();
+      const data = await postJson('/api/knowledge/query', { query });
       setResults(data);
       setQueryStatus('Complete');
-    } catch (e: any) {
-      setQueryStatus(`Error: ${e.message}`);
+    } catch (e: unknown) {
+      setQueryStatus(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -101,7 +90,7 @@ export default function KnowledgeStudio() {
                   borderLeft: '4px solid var(--accent)'
                 }}>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>
-                    Match Score: {results.distances[0][idx].toFixed(4)} | ID: {results.ids[0][idx]}
+                    Distance (lower = closer): {results.distances[0][idx].toFixed(4)} | ID: {results.ids[0][idx]}
                   </div>
                   <div>{doc}</div>
                 </div>

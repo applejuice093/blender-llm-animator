@@ -17,6 +17,9 @@ the good ideas from that conversation but re-sized a few of them (model choice, 
 planning, graph RAG) to actually fit a single 6GB card run by one person, rather than an
 enterprise-scale build. Details on what changed and why are inline.
 
+> **Running the code locally?** This document is the design plan. For installation, configuration
+> and the API reference, see the [README](README.md) and [docs/SETUP.md](docs/SETUP.md).
+
 ---
 
 ## Table of Contents

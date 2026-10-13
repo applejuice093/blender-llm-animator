@@ -1,32 +1,42 @@
-# React + TypeScript + Vite
+# Frontend: Animation Pipeline UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite UI for the Blender LLM Animator backend. It has three working studios:
 
-Currently, two official plugins are available:
+| Studio | Component | Backend endpoints |
+| :--- | :--- | :--- |
+| Fine-Tuning Studio | `src/components/FineTuningStudio.tsx` | `/api/dataset/generate`, `/api/dataset/list`, `/api/finetune/status` |
+| Knowledge Studio (RAG) | `src/components/KnowledgeStudio.tsx` | `/api/knowledge/add`, `/api/knowledge/query` |
+| Animation Studio | `src/components/AnimationStudio.tsx` | `/api/plan`, `/api/compile` |
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+The "Blender Bridge" tab is a placeholder.
 
-## React Compiler
+## Getting started
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Requires Node.js 20.19+ and a running backend (see the root README).
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm ci            # install exact versions from package-lock.json
+npm run dev       # dev server on http://localhost:5173
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Scripts
+
+| Command | What it does |
+| :--- | :--- |
+| `npm run dev` | Vite dev server with HMR |
+| `npm run build` | Type-check (`tsc -b`) and build to `dist/` |
+| `npm run preview` | Serve the production build locally |
+| `npm run lint` | Run [oxlint](https://oxc.rs) |
+
+## Configuration
+
+The backend URL comes from `VITE_API_URL` (default `http://localhost:8000`):
+
+```bash
+cp .env.example .env.local   # git-ignored
+# edit VITE_API_URL=http://192.168.1.20:8000
+```
+
+If you serve the UI from a different origin than `http://localhost:5173`, add it to the backend's `CORS_ORIGINS`.
+
+All requests go through `src/api.ts` (`getJson` / `postJson`), which throws a readable `Error` for non-2xx responses, including FastAPI 422 validation details.

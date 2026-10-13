@@ -1,43 +1,55 @@
+"""Wrapper around the Rhubarb Lip Sync CLI for viseme extraction."""
+
+import json
+import logging
 import os
 import subprocess
-import json
+import tempfile
+from typing import Optional
+
 from config import RHUBARB_EXECUTABLE
 
-def extract_visemes(audio_file_path: str, dialog_text: str = None) -> list:
+logger = logging.getLogger(__name__)
+
+
+def extract_visemes(audio_file_path: str, dialog_text: Optional[str] = None) -> list:
     """
     Runs Rhubarb Lip Sync on the given audio file and returns a list of viseme events.
     Returns format: [{"start": 0.0, "end": 0.2, "viseme": "A"}, ...]
+
+    Returns an empty list (and logs why) if Rhubarb or the audio file is missing,
+    the CLI fails, or its output cannot be parsed.
     """
     if not RHUBARB_EXECUTABLE or not os.path.exists(RHUBARB_EXECUTABLE):
-        print("Rhubarb executable not found.")
+        logger.warning("Rhubarb executable not found (RHUBARB_EXECUTABLE=%r).", RHUBARB_EXECUTABLE)
         return []
-        
+    if not audio_file_path or not os.path.exists(audio_file_path):
+        logger.warning("Audio file not found: %r", audio_file_path)
+        return []
+
     cmd = [RHUBARB_EXECUTABLE, "-f", "json", audio_file_path]
-    if dialog_text:
-        # Create a temp file for the dialog text if provided
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-            f.write(dialog_text)
-            temp_txt = f.name
-        cmd.extend(["-d", temp_txt])
-        
+    temp_txt = None
     try:
+        if dialog_text:
+            # Rhubarb takes the transcript as a file path.
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+                f.write(dialog_text)
+                temp_txt = f.name
+            cmd.extend(["-d", temp_txt])
+
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        # Parse the JSON output from stdout
         rhubarb_output = json.loads(result.stdout)
-        
-        visemes = []
-        mouth_cues = rhubarb_output.get("mouthCues", [])
-        for i, cue in enumerate(mouth_cues):
-            start = cue["start"]
-            end = cue["end"]
-            viseme = cue["value"]
-            visemes.append({"start": start, "end": end, "viseme": viseme})
-            
-        return visemes
+
+        return [
+            {"start": cue["start"], "end": cue["end"], "viseme": cue["value"]}
+            for cue in rhubarb_output.get("mouthCues", [])
+        ]
     except subprocess.CalledProcessError as e:
-        print(f"Rhubarb failed with error: {e.stderr}")
+        logger.error("Rhubarb failed with error: %s", e.stderr)
+        return []
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.error("Could not parse Rhubarb output: %s", e)
         return []
     finally:
-        if dialog_text and 'temp_txt' in locals() and os.path.exists(temp_txt):
+        if temp_txt and os.path.exists(temp_txt):
             os.remove(temp_txt)
