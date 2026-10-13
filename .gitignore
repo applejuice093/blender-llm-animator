@@ -22,6 +22,8 @@ wheels/
 *.egg
 
 # Virtual Environments
+.venv/
+backend/.venv/
 backend/venv/
 backend/venv_wsl/
 backend/testenv/
@@ -31,6 +33,8 @@ ENV/
 
 # Databases & Vector Storage
 backend/chroma_db/
+chroma_db/
+.chroma/
 backend/tools/
 *.sqlite3
 *.db
@@ -40,6 +44,12 @@ outputs/
 lora_output/
 *.gguf
 *.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+backend/lora_output/
+backend/outputs/
 backend/datasets/
 datasets/
 
@@ -57,3 +67,18 @@ frontend/dist-ssr/
 Thumbs.db
 *.log
 scratch/
+
+# Secrets & local config
+.env
+.env.*
+!.env.example
+
+# Test / tooling caches
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Blender autosaves
+*.blend1
