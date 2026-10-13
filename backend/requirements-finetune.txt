@@ -1,0 +1,12 @@
+# Local fine-tuning stack for backend/finetune.py (Linux or WSL2 with an NVIDIA GPU).
+# Install torch for your CUDA version first: https://pytorch.org/get-started/locally/
+# The Colab/Kaggle notebooks install these themselves; you only need this for local training.
+-r requirements.txt
+torch>=2.1
+unsloth                # FastLanguageModel (4-bit QLoRA + GGUF export)
+trl                    # SFTTrainer
+transformers           # TrainingArguments
+datasets               # Dataset.from_list
+peft                   # LoRA adapters (FastLanguageModel.get_peft_model)
+accelerate
+bitsandbytes           # load_in_4bit and the adamw_8bit optimizer
