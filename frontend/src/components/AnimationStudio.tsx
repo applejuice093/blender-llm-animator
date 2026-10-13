@@ -1,6 +1,5 @@
 import { useState } from 'react';
-
-const API_URL = 'http://localhost:8000';
+import { postJson } from '../api';
 
 export default function AnimationStudio() {
   const [character, setCharacter] = useState('Aiko');
@@ -13,20 +12,15 @@ export default function AnimationStudio() {
   const handleGeneratePlan = async () => {
     try {
       setStatus('Generating plan...');
-      const response = await fetch(`${API_URL}/api/plan`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ character, request_text: requestText, scene_context: sceneContext })
-      });
-      const data = await response.json();
+      const data = await postJson('/api/plan', { character, request_text: requestText, scene_context: sceneContext });
       if (data.status === 'success') {
         setPlanJson(JSON.stringify(data.plan, null, 2));
         setStatus('Plan generated successfully.');
       } else {
         setStatus(`Error: ${data.detail || 'Failed to generate plan'}`);
       }
-    } catch (e: any) {
-      setStatus(`Error: ${e.message}`);
+    } catch (e: unknown) {
+      setStatus(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -34,20 +28,15 @@ export default function AnimationStudio() {
     try {
       setStatus('Compiling plan...');
       const parsedPlan = JSON.parse(planJson);
-      const response = await fetch(`${API_URL}/api/compile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(parsedPlan)
-      });
-      const data = await response.json();
+      const data = await postJson('/api/compile', parsedPlan);
       if (data.status === 'success') {
         setCompileResult(data.compiled_script);
         setStatus('Plan compiled successfully.');
       } else {
         setStatus(`Error: ${data.detail || 'Failed to compile plan'}`);
       }
-    } catch (e: any) {
-      setStatus(`Error: ${e.message}`);
+    } catch (e: unknown) {
+      setStatus(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 

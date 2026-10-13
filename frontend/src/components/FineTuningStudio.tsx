@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API_URL = 'http://localhost:8000';
+import { getJson, postJson } from '../api';
 
 export default function FineTuningStudio() {
   const [character, setCharacter] = useState('Aiko');
@@ -11,8 +10,7 @@ export default function FineTuningStudio() {
 
   const checkStatus = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/finetune/status`);
-      const data = await res.json();
+      const data = await getJson('/api/finetune/status');
       if (data.status === 'success') {
         setFtStatus(data.data);
       }
@@ -23,8 +21,7 @@ export default function FineTuningStudio() {
 
   const fetchDatasets = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/dataset/list`);
-      const data = await res.json();
+      const data = await getJson('/api/dataset/list');
       if (data.status === 'success') {
         setDatasets(data.datasets);
       }
@@ -44,20 +41,15 @@ export default function FineTuningStudio() {
     try {
       setStatus('Generating dataset with 3-step Critique... This will take 3x longer.');
       const prompts = promptsText.split('\n').filter(p => p.trim() !== '');
-      const response = await fetch(`${API_URL}/api/dataset/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ character, prompts, scene_context: sceneContext })
-      });
-      const data = await response.json();
+      const data = await postJson('/api/dataset/generate', { character, prompts, scene_context: sceneContext });
       if (data.status === 'success') {
         setStatus(`Generated batch ${data.data.batch_id} with ${data.data.successful}/${data.data.total} successful plans.`);
         fetchDatasets();
       } else {
         setStatus(`Error: ${data.detail || 'Failed'}`);
       }
-    } catch (e: any) {
-      setStatus(`Error: ${e.message}`);
+    } catch (e: unknown) {
+      setStatus(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
