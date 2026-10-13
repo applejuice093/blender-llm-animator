@@ -1,10 +1,21 @@
-import json
-import urllib.request
-import re
-from models import AnimationIntentPlan
+"""LLM "animation director": turns a natural-language request into a JSON
+Animation Intent Plan by prompting a local Ollama model.
 
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-MODEL_NAME = "qwen3:4b"
+If Ollama is unreachable or returns unparseable output, ``generate_plan`` falls
+back to a deterministic mock plan so the rest of the pipeline keeps working.
+"""
+
+import json
+import logging
+import re
+import urllib.request
+
+from config import OLLAMA_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL
+
+logger = logging.getLogger(__name__)
+
+# Kept for backwards compatibility with code that imported these names.
+MODEL_NAME = OLLAMA_MODEL
 
 SYSTEM_PROMPT = """You are an expert animation director. You must output a valid JSON object representing an animation intent plan, and NOTHING ELSE. No markdown, no explanations, just raw JSON.
 The JSON must conform to this schema:
@@ -73,8 +84,12 @@ The JSON must conform to this schema:
 """
 
 def call_ollama(prompt: str, system: str) -> dict:
+    """Send one non-streaming generate request to Ollama and parse the JSON reply.
+
+    Returns an empty dict on any network or parsing failure.
+    """
     data = {
-        "model": MODEL_NAME,
+        "model": OLLAMA_MODEL,
         "prompt": prompt,
         "system": system,
         "stream": False,
@@ -82,7 +97,7 @@ def call_ollama(prompt: str, system: str) -> dict:
     }
     req = urllib.request.Request(OLLAMA_URL, data=json.dumps(data).encode('utf-8'), headers={'Content-Type': 'application/json'})
     try:
-        with urllib.request.urlopen(req, timeout=120) as response:
+        with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT) as response:
             result = json.loads(response.read().decode('utf-8'))
             
             # Check response first
@@ -92,7 +107,7 @@ def call_ollama(prompt: str, system: str) -> dict:
                 resp_text = result.get("thinking", "").strip()
                 
             if not resp_text:
-                print("Ollama returned empty response and thinking fields.")
+                logger.warning("Ollama returned empty response and thinking fields.")
                 return {}
                 
             # Clean up markdown block wraps if present
@@ -114,15 +129,16 @@ def call_ollama(prompt: str, system: str) -> dict:
                 if match:
                     try:
                         return json.loads(match.group(0))
-                    except:
+                    except json.JSONDecodeError:
                         pass
-                print(f"Failed to parse JSON: {clean_text[:200]}... Error: {jde}")
+                logger.warning("Failed to parse JSON: %s... Error: %s", clean_text[:200], jde)
                 return {}
     except Exception as e:
-        print(f"Ollama failed ({e})")
+        logger.warning("Ollama request to %s failed: %s", OLLAMA_URL, e)
         return {}
 
 def generate_plan(character: str, request_text: str, scene_context: str = "") -> dict:
+    """Generate a single-pass plan, falling back to ``get_mock_plan`` on failure."""
     prompt = f"Scene Context: {scene_context}\nCharacter: {character}\nRequest: {request_text}\nGenerate the JSON animation plan."
     plan_dict = call_ollama(prompt, SYSTEM_PROMPT)
     if not plan_dict:
@@ -180,6 +196,10 @@ def repair_plan(failed_plan: dict, error_message: str) -> dict:
     return repaired_plan
 
 def get_mock_plan(character: str, request_text: str, scene_context: str = "") -> dict:
+    """Deterministic placeholder plan used when the LLM is unavailable.
+
+    ``reasoning == "MOCK_REASONING"`` marks it so dataset generation can skip it.
+    """
     return {
         "reasoning": "MOCK_REASONING",
         "character": character,

@@ -1,7 +1,7 @@
 import os
 import subprocess
 import tempfile
-from config import BLENDER_EXECUTABLE, BLEND_FILE
+from config import BLEND_FILE, BLENDER_EXECUTABLE, BLENDER_VALIDATION_TIMEOUT
 
 def validate_script_headlessly(script_code: str) -> tuple[bool, str]:
     """
@@ -27,7 +27,7 @@ def validate_script_headlessly(script_code: str) -> tuple[bool, str]:
     
     try:
         # Run blender
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=BLENDER_VALIDATION_TIMEOUT)
         
         # Cleanup temp file
         if os.path.exists(temp_path):
@@ -43,7 +43,14 @@ def validate_script_headlessly(script_code: str) -> tuple[bool, str]:
     except subprocess.TimeoutExpired:
         if os.path.exists(temp_path):
             os.remove(temp_path)
-        return False, "Blender validation timed out after 30 seconds."
+        return False, f"Blender validation timed out after {BLENDER_VALIDATION_TIMEOUT} seconds."
+    except FileNotFoundError:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return False, (
+            f"Blender executable not found at {BLENDER_EXECUTABLE!r}. "
+            "Install Blender or set BLENDER_EXECUTABLE."
+        )
     except Exception as e:
         if os.path.exists(temp_path):
             os.remove(temp_path)
