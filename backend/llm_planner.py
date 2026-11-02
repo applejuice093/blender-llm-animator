@@ -83,6 +83,37 @@ The JSON must conform to this schema:
 }
 """
 
+def parse_json_object(text: str) -> dict:
+    """Extract a JSON *object* from raw model output.
+
+    Handles Markdown code fences and leading/trailing chatter. Returns an empty
+    dict when no object can be parsed, or when the model returned valid JSON
+    that is not an object (e.g. a list or a bare string), so callers can always
+    use ``.get`` on the result.
+    """
+    clean_text = (text or "").strip()
+    if clean_text.startswith("```"):
+        lines = clean_text.split("\n")[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        clean_text = "\n".join(lines).strip()
+
+    candidates = [clean_text]
+    match = re.search(r"\{.*\}", clean_text, re.DOTALL)
+    if match and match.group(0) != clean_text:
+        candidates.append(match.group(0))
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    logger.warning("Model output did not contain a JSON object: %s...", clean_text[:200])
+    return {}
+
+
 def call_ollama(prompt: str, system: str) -> dict:
     """Send one non-streaming generate request to Ollama and parse the JSON reply.
 
@@ -110,29 +141,7 @@ def call_ollama(prompt: str, system: str) -> dict:
                 logger.warning("Ollama returned empty response and thinking fields.")
                 return {}
                 
-            # Clean up markdown block wraps if present
-            clean_text = resp_text
-            if clean_text.startswith("```"):
-                # strip markdown blocks
-                lines = clean_text.split("\n")
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].strip() == "```":
-                    lines = lines[:-1]
-                clean_text = "\n".join(lines).strip()
-                
-            try:
-                return json.loads(clean_text)
-            except json.JSONDecodeError as jde:
-                # Try to extract the first valid JSON object using regex
-                match = re.search(r'\{.*\}', clean_text, re.DOTALL)
-                if match:
-                    try:
-                        return json.loads(match.group(0))
-                    except json.JSONDecodeError:
-                        pass
-                logger.warning("Failed to parse JSON: %s... Error: %s", clean_text[:200], jde)
-                return {}
+            return parse_json_object(resp_text)
     except Exception as e:
         logger.warning("Ollama request to %s failed: %s", OLLAMA_URL, e)
         return {}
