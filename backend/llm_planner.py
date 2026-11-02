@@ -152,6 +152,10 @@ def generate_plan(character: str, request_text: str, scene_context: str = "") ->
     plan_dict = call_ollama(prompt, SYSTEM_PROMPT)
     if not plan_dict:
         return get_mock_plan(character, request_text, scene_context)
+    # Small models often omit or blank the character; the caller already told
+    # us who it is, so fill it in rather than failing validation later.
+    if not str(plan_dict.get("character") or "").strip():
+        plan_dict["character"] = character
     return plan_dict
 
 def generate_plan_with_critique(character: str, request_text: str, scene_context: str = "") -> dict:

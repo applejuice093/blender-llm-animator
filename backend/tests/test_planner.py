@@ -27,3 +27,27 @@ def test_parse_handles_empty_and_garbage():
     assert parse_json_object("") == {}
     assert parse_json_object(None) == {}
     assert parse_json_object("not json at all") == {}
+
+
+def test_generate_plan_fills_missing_character(monkeypatch):
+    import llm_planner
+
+    monkeypatch.setattr(llm_planner, "call_ollama", lambda prompt, system: {"duration_seconds": 3})
+    plan = llm_planner.generate_plan("Aiko", "wave hello")
+    assert plan["character"] == "Aiko"
+
+
+def test_generate_plan_keeps_model_character(monkeypatch):
+    import llm_planner
+
+    monkeypatch.setattr(llm_planner, "call_ollama", lambda prompt, system: {"character": "Ren"})
+    assert llm_planner.generate_plan("Aiko", "wave")["character"] == "Ren"
+
+
+def test_generate_plan_falls_back_to_mock(monkeypatch):
+    import llm_planner
+
+    monkeypatch.setattr(llm_planner, "call_ollama", lambda prompt, system: {})
+    plan = llm_planner.generate_plan("Aiko", "wave")
+    assert plan["reasoning"] == "MOCK_REASONING"
+    assert plan["character"] == "Aiko"
