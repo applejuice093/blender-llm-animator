@@ -63,15 +63,27 @@ class AnimationPlanRequest(BaseModel):
 
 
 class AddKnowledgeRequest(BaseModel):
-    content: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=100_000)
     metadata: dict = Field(default_factory=dict)
     doc_id: Optional[str] = Field(default=None, max_length=200)
 
     _strip = field_validator("content")(_not_blank)
 
+    @field_validator("metadata")
+    @classmethod
+    def _flat_metadata(cls, metadata: dict) -> dict:
+        # ChromaDB only stores flat str/int/float/bool values; anything else
+        # used to surface as an opaque 500 from inside Chroma.
+        for key, value in metadata.items():
+            if not isinstance(value, (str, int, float, bool)):
+                raise ValueError(
+                    f"metadata[{key!r}] must be a string, number or boolean, got {type(value).__name__}"
+                )
+        return metadata
+
 
 class QueryKnowledgeRequest(BaseModel):
-    query: str = Field(min_length=1)
+    query: str = Field(min_length=1, max_length=4000)
     n_results: int = Field(default=3, ge=1, le=50)
 
     _strip = field_validator("query")(_not_blank)
@@ -79,7 +91,7 @@ class QueryKnowledgeRequest(BaseModel):
 
 class DatasetRequest(BaseModel):
     character: str = Field(min_length=1, max_length=100)
-    scene_context: str = ""
+    scene_context: str = Field(default="", max_length=4000)
     prompts: List[str] = Field(min_length=1, max_length=200)
 
     _strip = field_validator("character")(_not_blank)
@@ -90,6 +102,9 @@ class DatasetRequest(BaseModel):
         cleaned = [p.strip() for p in prompts if p and p.strip()]
         if not cleaned:
             raise ValueError("at least one non-empty prompt is required")
+        too_long = [i for i, p in enumerate(cleaned) if len(p) > 4000]
+        if too_long:
+            raise ValueError(f"prompts must be at most 4000 characters (index {too_long[0]})")
         return cleaned
 
 
