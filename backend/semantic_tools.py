@@ -14,6 +14,15 @@ def _comment(text) -> str:
     return " ".join(str(text).split())
 
 
+def _to_frame(seconds: float, fps) -> int:
+    """Convert seconds to a frame number, rounding to the nearest frame.
+
+    ``int(seconds * fps)`` truncates, so float error like ``4.1 * 30 ==
+    122.99999999999999`` silently lands one frame early.
+    """
+    return max(0, int(round(float(seconds) * float(fps))))
+
+
 def generate_blender_imports() -> str:
     return "import bpy\nimport math\n\n"
 
@@ -26,7 +35,7 @@ def get_armature(character: str, manifest: dict) -> str:
 def set_scene_range(duration_seconds: float, manifest: dict) -> str:
     """Set the scene FPS and frame range so the clip length matches the plan."""
     fps = int(manifest.get("fps", 24))
-    end_frame = max(1, int(round(duration_seconds * fps)))
+    end_frame = max(1, _to_frame(duration_seconds, fps))
     code = f"# Scene: {_comment(duration_seconds)}s at {fps} fps\n"
     code += "scene = bpy.context.scene\n"
     code += f"scene.render.fps = {fps}\n"
@@ -45,8 +54,8 @@ def set_emotion(character: str, emotion: str, intensity: float, manifest: dict) 
 
 def gesture(character: str, g_type: str, start: float, end: float, intensity: float, manifest: dict) -> str:
     fps = manifest.get("fps", 24)
-    start_frame = int(start * fps)
-    end_frame = int(end * fps)
+    start_frame = _to_frame(start, fps)
+    end_frame = _to_frame(end, fps)
 
     code = (
         f"# Gesture: {_comment(g_type)} from {start}s (f{start_frame}) to {end}s (f{end_frame}) "
@@ -76,7 +85,7 @@ def lip_sync(character: str, audio_file: str, transcript: str, manifest: dict) -
     code += "if mesh_obj and mesh_obj.data.shape_keys:\n"
 
     for v in visemes:
-        start_frame = int(v["start"] * fps)
+        start_frame = _to_frame(v["start"], fps)
         viseme_name = f"Viseme_{v['viseme']}"
         code += f"    # Viseme {_comment(v['viseme'])} at {v['start']}s\n"
         code += f"    if {viseme_name!r} in mesh_obj.data.shape_keys.key_blocks:\n"
