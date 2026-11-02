@@ -82,4 +82,7 @@ make test
 | `Blender executable not found` in validation errors | Install Blender or set `BLENDER_EXECUTABLE` |
 | First knowledge query is slow | ChromaDB downloads the all-MiniLM-L6-v2 ONNX model (~80 MB) on first use |
 | `/api/compile` returns 422 | The plan does not match the schema; the `detail` field names the failing field |
+| `/api/plan` replies with `"mock": true` | Ollama was unreachable or returned no JSON object; check `OLLAMA_URL` and that the model is pulled |
+| `/api/plan` replies with `"valid": false` | The model's plan breaks the schema; edit it per `validation_error` (or regenerate) before compiling |
+| Lip sync silently has no visemes | Rhubarb hit `RHUBARB_TIMEOUT` or could not read the audio; check the API log |
 | `finetune.py` prints "Required training packages not found" | `pip install -r backend/requirements-finetune.txt` in a CUDA-capable Linux/WSL env |
