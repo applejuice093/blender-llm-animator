@@ -16,11 +16,12 @@ from typing import List, Optional
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from config import BLENDER_EXECUTABLE, CORS_ORIGINS, LOG_LEVEL, LORA_OUTPUT_DIR, RHUBARB_EXECUTABLE
 from dataset_factory import generate_dataset_batch, list_datasets
 from llm_planner import generate_plan
+from models import AnimationIntentPlan
 from plan_compiler import PlanCompilationError, compile_plan
 from rag import rag_manager
 
@@ -187,7 +188,20 @@ def create_plan_endpoint(req: AnimationPlanRequest):
     except Exception as e:
         logger.exception("Plan generation failed")
         raise HTTPException(status_code=500, detail=str(e))
-    return {"status": "success", "plan": plan_dict}
+    # Tell the UI up front whether /api/compile will accept this plan, instead
+    # of letting the user discover a schema problem one click later.
+    try:
+        AnimationIntentPlan(**plan_dict)
+        valid, validation_error = True, None
+    except ValidationError as e:
+        valid, validation_error = False, str(e)
+    return {
+        "status": "success",
+        "plan": plan_dict,
+        "valid": valid,
+        "validation_error": validation_error,
+        "mock": plan_dict.get("reasoning") == "MOCK_REASONING",
+    }
 
 
 @app.post("/api/compile")
