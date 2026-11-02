@@ -171,7 +171,10 @@ def generate_plan_with_critique(character: str, request_text: str, scene_context
     critique_system = "You are a Senior Animation Director evaluating an animation plan JSON. Output a JSON object with a single key 'critique' containing your notes on what needs to be improved based on the original request and scene context."
     critique_prompt = f"Scene Context: {scene_context}\nOriginal Request: {request_text}\nDraft Plan:\n{json.dumps(draft_plan)}\nEvaluate this plan."
     critique_res = call_ollama(critique_prompt, critique_system)
-    critique_text = critique_res.get("critique", "No critique provided.")
+    critique_text = critique_res.get("critique") or "No critique provided."
+    if not isinstance(critique_text, str):
+        # Models sometimes return a list or object of notes instead of prose.
+        critique_text = json.dumps(critique_text)
     
     # 3. Polish
     polish_prompt = (

@@ -51,3 +51,27 @@ def test_generate_plan_falls_back_to_mock(monkeypatch):
     plan = llm_planner.generate_plan("Aiko", "wave")
     assert plan["reasoning"] == "MOCK_REASONING"
     assert plan["character"] == "Aiko"
+
+
+def test_critique_loop_serialises_structured_critique(monkeypatch):
+    import llm_planner
+
+    replies = iter([
+        {"character": "Aiko", "duration_seconds": 2},          # draft
+        {"critique": ["slow the gesture", "add a blink"]},     # critique
+        {"character": "Aiko", "duration_seconds": 3},          # polish
+    ])
+    monkeypatch.setattr(llm_planner, "call_ollama", lambda prompt, system: next(replies))
+    plan = llm_planner.generate_plan_with_critique("Aiko", "wave")
+    assert plan["duration_seconds"] == 3
+    assert plan["_critique_received"] == '["slow the gesture", "add a blink"]'
+    assert plan["_draft_plan"]["duration_seconds"] == 2
+
+
+def test_critique_loop_returns_draft_when_polish_fails(monkeypatch):
+    import llm_planner
+
+    replies = iter([{"character": "Aiko", "duration_seconds": 2}, {}, {}])
+    monkeypatch.setattr(llm_planner, "call_ollama", lambda prompt, system: next(replies))
+    plan = llm_planner.generate_plan_with_critique("Aiko", "wave")
+    assert plan == {"character": "Aiko", "duration_seconds": 2}
