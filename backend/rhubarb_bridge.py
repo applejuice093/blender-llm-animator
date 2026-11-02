@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 from typing import Optional
 
-from config import RHUBARB_EXECUTABLE
+from config import RHUBARB_EXECUTABLE, RHUBARB_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def extract_visemes(audio_file_path: str, dialog_text: Optional[str] = None) -> 
                 temp_txt = f.name
             cmd.extend(["-d", temp_txt])
 
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=RHUBARB_TIMEOUT)
         rhubarb_output = json.loads(result.stdout)
 
         return [
@@ -46,6 +46,9 @@ def extract_visemes(audio_file_path: str, dialog_text: Optional[str] = None) -> 
         ]
     except subprocess.CalledProcessError as e:
         logger.error("Rhubarb failed with error: %s", e.stderr)
+        return []
+    except subprocess.TimeoutExpired:
+        logger.error("Rhubarb timed out after %ss on %r", RHUBARB_TIMEOUT, audio_file_path)
         return []
     except (json.JSONDecodeError, KeyError) as e:
         logger.error("Could not parse Rhubarb output: %s", e)

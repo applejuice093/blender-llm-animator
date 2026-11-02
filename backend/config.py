@@ -60,6 +60,8 @@ if platform.system() == "Windows":
 else:
     DEFAULT_RHUBARB = shutil.which("rhubarb") or ""
 RHUBARB_EXECUTABLE = os.environ.get("RHUBARB_EXECUTABLE", DEFAULT_RHUBARB)
+# Rhubarb is CPU-bound and can hang on corrupt audio; cap each run.
+RHUBARB_TIMEOUT = _env_int("RHUBARB_TIMEOUT", 120)
 
 # --- LLM planner (Ollama) ----------------------------------------------------
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")

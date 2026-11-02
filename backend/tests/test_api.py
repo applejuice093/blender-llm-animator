@@ -87,3 +87,46 @@ def test_dataset_list_empty(client):
 def test_finetune_status_without_output(client):
     data = client.get("/api/finetune/status").json()["data"]
     assert data == {"lora_output_exists": False, "gguf_exists": False, "gguf_file": None}
+
+
+def test_plan_reports_mock_fallback_as_valid(client):
+    # OLLAMA_URL points at an unroutable port in conftest, so the mock plan is used.
+    body = client.post("/api/plan", json={"character": "Aiko", "request_text": "wave"}).json()
+    assert body["mock"] is True
+    assert body["valid"] is True
+    assert body["validation_error"] is None
+
+
+def test_plan_flags_invalid_llm_output(client, monkeypatch):
+    monkeypatch.setattr(main, "generate_plan", lambda c, r, s: {"character": "Aiko", "duration_seconds": -1})
+    body = client.post("/api/plan", json={"character": "Aiko", "request_text": "wave"}).json()
+    assert body["status"] == "success"
+    assert body["valid"] is False
+    assert "duration_seconds" in body["validation_error"]
+    assert body["mock"] is False
+
+
+@pytest.mark.parametrize("metadata", [{"tags": ["a", "b"]}, {"nested": {"x": 1}}, {"none": None}])
+def test_knowledge_rejects_non_scalar_metadata(client, metadata):
+    res = client.post("/api/knowledge/add", json={"content": "rig notes", "metadata": metadata})
+    assert res.status_code == 422
+
+
+def test_dataset_rejects_oversized_prompt(client):
+    res = client.post("/api/dataset/generate", json={"character": "Aiko", "prompts": ["x" * 4001]})
+    assert res.status_code == 422
+
+
+def test_query_rejects_oversized_text(client):
+    res = client.post("/api/knowledge/query", json={"query": "x" * 4001})
+    assert res.status_code == 422
+
+
+def test_internal_errors_do_not_leak_details(client, monkeypatch):
+    def boom(*a):
+        raise RuntimeError("secret path /home/me/.env")
+
+    monkeypatch.setattr(main, "generate_plan", boom)
+    res = client.post("/api/plan", json={"character": "Aiko", "request_text": "wave"})
+    assert res.status_code == 500
+    assert "secret" not in res.text

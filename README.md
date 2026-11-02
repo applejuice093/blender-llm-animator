@@ -116,6 +116,8 @@ Settings are read from environment variables in `backend/config.py`; copy [`back
 | `BLEND_FILE` | unset | `.blend` scene to load during validation |
 | `BLENDER_HOST` / `BLENDER_PORT` | `127.0.0.1` / `8123` | blender-mcp socket |
 | `RHUBARB_EXECUTABLE` | `backend/tools/...` (Windows) or `rhubarb` on `PATH` | Lip-sync CLI |
+| `RHUBARB_TIMEOUT` | `120` | Seconds before a Rhubarb run is abandoned |
+| `OLLAMA_TIMEOUT` / `BLENDER_VALIDATION_TIMEOUT` | `120` / `30` | Seconds to wait for the planner / headless Blender |
 | `CHROMA_DB_DIR` | `backend/chroma_db` | Vector store location |
 | `DATASET_DIR` / `LORA_OUTPUT_DIR` | `backend/datasets` / `backend/lora_output` | Training data and adapters |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Allowed browser origins |
@@ -133,14 +135,16 @@ Interactive docs are served at `http://localhost:8000/docs` when the API is runn
 | :--- | :--- | :--- | :--- |
 | GET | `/` | – | Liveness message |
 | GET | `/health` | – | Version and availability of Blender / Rhubarb |
-| POST | `/api/plan` | `{character, request_text, scene_context?}` | Generate an Animation Intent Plan |
+| POST | `/api/plan` | `{character, request_text, scene_context?}` | Generate an Animation Intent Plan; the reply also has `valid`, `validation_error` and `mock` (true when Ollama was unreachable) |
 | POST | `/api/compile` | Animation Intent Plan JSON | Compile to a `bpy` script (422 if the plan is invalid) |
-| POST | `/api/knowledge/add` | `{content, metadata?, doc_id?}` | Insert/replace a RAG document |
+| POST | `/api/knowledge/add` | `{content, metadata?, doc_id?}` | Insert/replace a RAG document (metadata values must be strings, numbers or booleans) |
 | POST | `/api/knowledge/query` | `{query, n_results? (1–50)}` | Semantic search over the knowledge store |
 | POST | `/api/dataset/generate` | `{character, prompts[], scene_context?}` | Draft → critique → polish → validate → repair, saved as JSONL |
 | GET | `/api/dataset/list` | – | Generated batches and record counts |
 | GET | `/api/finetune/status` | – | Whether a LoRA adapter / GGUF export exists |
 | GET | `/api/rigs/{character}` | – | Placeholder for the rig indexer |
+
+Free-text fields (`request_text`, `scene_context`, each prompt, `query`) are capped at 4000 characters. Gestures that run past `duration_seconds` are clamped to the clip, and ones that start after it are skipped.
 
 Example:
 

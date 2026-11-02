@@ -15,7 +15,13 @@ export default function AnimationStudio() {
       const data = await postJson('/api/plan', { character, request_text: requestText, scene_context: sceneContext });
       if (data.status === 'success') {
         setPlanJson(JSON.stringify(data.plan, null, 2));
-        setStatus('Plan generated successfully.');
+        if (data.valid === false) {
+          setStatus(`Plan generated, but it will not compile until fixed: ${data.validation_error}`);
+        } else if (data.mock) {
+          setStatus('LLM unavailable (is Ollama running?). Showing the offline placeholder plan.');
+        } else {
+          setStatus('Plan generated successfully.');
+        }
       } else {
         setStatus(`Error: ${data.detail || 'Failed to generate plan'}`);
       }

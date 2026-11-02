@@ -83,6 +83,37 @@ The JSON must conform to this schema:
 }
 """
 
+def parse_json_object(text: str) -> dict:
+    """Extract a JSON *object* from raw model output.
+
+    Handles Markdown code fences and leading/trailing chatter. Returns an empty
+    dict when no object can be parsed, or when the model returned valid JSON
+    that is not an object (e.g. a list or a bare string), so callers can always
+    use ``.get`` on the result.
+    """
+    clean_text = (text or "").strip()
+    if clean_text.startswith("```"):
+        lines = clean_text.split("\n")[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        clean_text = "\n".join(lines).strip()
+
+    candidates = [clean_text]
+    match = re.search(r"\{.*\}", clean_text, re.DOTALL)
+    if match and match.group(0) != clean_text:
+        candidates.append(match.group(0))
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    logger.warning("Model output did not contain a JSON object: %s...", clean_text[:200])
+    return {}
+
+
 def call_ollama(prompt: str, system: str) -> dict:
     """Send one non-streaming generate request to Ollama and parse the JSON reply.
 
@@ -101,38 +132,16 @@ def call_ollama(prompt: str, system: str) -> dict:
             result = json.loads(response.read().decode('utf-8'))
             
             # Check response first
-            resp_text = result.get("response", "").strip()
+            resp_text = (result.get("response") or "").strip()
             if not resp_text:
                 # Fall back to thinking field (for reasoning models)
-                resp_text = result.get("thinking", "").strip()
+                resp_text = (result.get("thinking") or "").strip()
                 
             if not resp_text:
                 logger.warning("Ollama returned empty response and thinking fields.")
                 return {}
                 
-            # Clean up markdown block wraps if present
-            clean_text = resp_text
-            if clean_text.startswith("```"):
-                # strip markdown blocks
-                lines = clean_text.split("\n")
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].strip() == "```":
-                    lines = lines[:-1]
-                clean_text = "\n".join(lines).strip()
-                
-            try:
-                return json.loads(clean_text)
-            except json.JSONDecodeError as jde:
-                # Try to extract the first valid JSON object using regex
-                match = re.search(r'\{.*\}', clean_text, re.DOTALL)
-                if match:
-                    try:
-                        return json.loads(match.group(0))
-                    except json.JSONDecodeError:
-                        pass
-                logger.warning("Failed to parse JSON: %s... Error: %s", clean_text[:200], jde)
-                return {}
+            return parse_json_object(resp_text)
     except Exception as e:
         logger.warning("Ollama request to %s failed: %s", OLLAMA_URL, e)
         return {}
@@ -143,6 +152,10 @@ def generate_plan(character: str, request_text: str, scene_context: str = "") ->
     plan_dict = call_ollama(prompt, SYSTEM_PROMPT)
     if not plan_dict:
         return get_mock_plan(character, request_text, scene_context)
+    # Small models often omit or blank the character; the caller already told
+    # us who it is, so fill it in rather than failing validation later.
+    if not str(plan_dict.get("character") or "").strip():
+        plan_dict["character"] = character
     return plan_dict
 
 def generate_plan_with_critique(character: str, request_text: str, scene_context: str = "") -> dict:
@@ -158,7 +171,10 @@ def generate_plan_with_critique(character: str, request_text: str, scene_context
     critique_system = "You are a Senior Animation Director evaluating an animation plan JSON. Output a JSON object with a single key 'critique' containing your notes on what needs to be improved based on the original request and scene context."
     critique_prompt = f"Scene Context: {scene_context}\nOriginal Request: {request_text}\nDraft Plan:\n{json.dumps(draft_plan)}\nEvaluate this plan."
     critique_res = call_ollama(critique_prompt, critique_system)
-    critique_text = critique_res.get("critique", "No critique provided.")
+    critique_text = critique_res.get("critique") or "No critique provided."
+    if not isinstance(critique_text, str):
+        # Models sometimes return a list or object of notes instead of prose.
+        critique_text = json.dumps(critique_text)
     
     # 3. Polish
     polish_prompt = (

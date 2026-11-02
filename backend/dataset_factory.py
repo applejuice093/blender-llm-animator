@@ -9,8 +9,9 @@ import logging
 import os
 import uuid
 
+from blender_validator import validate_script_headlessly
 from config import DATASET_DIR
-from llm_planner import generate_plan_with_critique
+from llm_planner import generate_plan_with_critique, repair_plan
 from models import AnimationIntentPlan
 from plan_compiler import compile_plan
 
@@ -26,8 +27,8 @@ def generate_dataset_batch(character: str, prompts: list, scene_context: str = "
     results = []
     for prompt in prompts:
         # 1. Generate Plan with Critique
-        plan_dict = generate_plan_with_critique(character, prompt, scene_context)
-        
+        plan_dict = dict(generate_plan_with_critique(character, prompt, scene_context) or {})
+
         draft_plan = plan_dict.pop("_draft_plan", None)
         critique = plan_dict.pop("_critique_received", None)
         polished_plan = plan_dict
@@ -47,17 +48,13 @@ def generate_dataset_batch(character: str, prompts: list, scene_context: str = "
         except Exception as e:
             compile_success = False
             validation_error = f"Pydantic Validation Error: {str(e)}"
-            
-        from blender_validator import validate_script_headlessly
-        
+
         if compile_success:
             validation_success, validation_error = validate_script_headlessly(script)
             
         # 3. Self-Repair Loop if validation failed (and it's not a fallback mock plan)
         if not validation_success and polished_plan.get("reasoning") != "MOCK_REASONING":
             logger.info("Validation failed for prompt %r. Initiating self-repair...", prompt)
-            from llm_planner import repair_plan
-            
             fixed_plan = repair_plan(polished_plan, validation_error)
             
             try:

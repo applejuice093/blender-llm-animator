@@ -16,11 +16,12 @@ from typing import List, Optional
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from config import BLENDER_EXECUTABLE, CORS_ORIGINS, LOG_LEVEL, LORA_OUTPUT_DIR, RHUBARB_EXECUTABLE
 from dataset_factory import generate_dataset_batch, list_datasets
 from llm_planner import generate_plan
+from models import AnimationIntentPlan
 from plan_compiler import PlanCompilationError, compile_plan
 from rag import rag_manager
 
@@ -62,15 +63,27 @@ class AnimationPlanRequest(BaseModel):
 
 
 class AddKnowledgeRequest(BaseModel):
-    content: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=100_000)
     metadata: dict = Field(default_factory=dict)
     doc_id: Optional[str] = Field(default=None, max_length=200)
 
     _strip = field_validator("content")(_not_blank)
 
+    @field_validator("metadata")
+    @classmethod
+    def _flat_metadata(cls, metadata: dict) -> dict:
+        # ChromaDB only stores flat str/int/float/bool values; anything else
+        # used to surface as an opaque 500 from inside Chroma.
+        for key, value in metadata.items():
+            if not isinstance(value, (str, int, float, bool)):
+                raise ValueError(
+                    f"metadata[{key!r}] must be a string, number or boolean, got {type(value).__name__}"
+                )
+        return metadata
+
 
 class QueryKnowledgeRequest(BaseModel):
-    query: str = Field(min_length=1)
+    query: str = Field(min_length=1, max_length=4000)
     n_results: int = Field(default=3, ge=1, le=50)
 
     _strip = field_validator("query")(_not_blank)
@@ -78,7 +91,7 @@ class QueryKnowledgeRequest(BaseModel):
 
 class DatasetRequest(BaseModel):
     character: str = Field(min_length=1, max_length=100)
-    scene_context: str = ""
+    scene_context: str = Field(default="", max_length=4000)
     prompts: List[str] = Field(min_length=1, max_length=200)
 
     _strip = field_validator("character")(_not_blank)
@@ -89,6 +102,9 @@ class DatasetRequest(BaseModel):
         cleaned = [p.strip() for p in prompts if p and p.strip()]
         if not cleaned:
             raise ValueError("at least one non-empty prompt is required")
+        too_long = [i for i, p in enumerate(cleaned) if len(p) > 4000]
+        if too_long:
+            raise ValueError(f"prompts must be at most 4000 characters (index {too_long[0]})")
         return cleaned
 
 
@@ -121,9 +137,9 @@ def add_knowledge(req: AddKnowledgeRequest):
     doc_id = req.doc_id or str(uuid.uuid4())
     try:
         rag_manager.add_document(doc_id=doc_id, content=req.content, metadata=req.metadata)
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to add knowledge document %s", doc_id)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Could not store the document; see server log.")
     return {"status": "success", "doc_id": doc_id}
 
 
@@ -132,9 +148,9 @@ def query_knowledge(req: QueryKnowledgeRequest):
     """Semantic search over the knowledge store; returns raw Chroma results."""
     try:
         return rag_manager.query(query_text=req.query, n_results=req.n_results)
-    except Exception as e:
+    except Exception:
         logger.exception("Knowledge query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Knowledge query failed; see server log.")
 
 
 # --- Dataset factory ---------------------------------------------------------
@@ -145,9 +161,9 @@ def api_generate_dataset(req: DatasetRequest):
     logger.info("Generating dataset batch: character=%s prompts=%d", req.character, len(req.prompts))
     try:
         result = generate_dataset_batch(req.character, req.prompts, req.scene_context)
-    except Exception as e:
+    except Exception:
         logger.exception("Dataset generation failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Dataset generation failed; see server log.")
     return {"status": "success", "data": result}
 
 
@@ -156,9 +172,9 @@ def api_list_datasets():
     """List generated ``*.jsonl`` batches with record counts."""
     try:
         return {"status": "success", "datasets": list_datasets()}
-    except Exception as e:
+    except Exception:
         logger.exception("Listing datasets failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Could not list datasets; see server log.")
 
 
 @app.get("/api/finetune/status")
@@ -184,10 +200,23 @@ def create_plan_endpoint(req: AnimationPlanRequest):
     """Ask the LLM for an Animation Intent Plan (falls back to a mock plan)."""
     try:
         plan_dict = generate_plan(req.character, req.request_text, req.scene_context)
-    except Exception as e:
+    except Exception:
         logger.exception("Plan generation failed")
-        raise HTTPException(status_code=500, detail=str(e))
-    return {"status": "success", "plan": plan_dict}
+        raise HTTPException(status_code=500, detail="Plan generation failed; see server log.")
+    # Tell the UI up front whether /api/compile will accept this plan, instead
+    # of letting the user discover a schema problem one click later.
+    try:
+        AnimationIntentPlan(**plan_dict)
+        valid, validation_error = True, None
+    except ValidationError as e:
+        valid, validation_error = False, str(e)
+    return {
+        "status": "success",
+        "plan": plan_dict,
+        "valid": valid,
+        "validation_error": validation_error,
+        "mock": plan_dict.get("reasoning") == "MOCK_REASONING",
+    }
 
 
 @app.post("/api/compile")
@@ -200,9 +229,9 @@ def compile_plan_endpoint(plan: dict = Body(..., description="Animation Intent P
         script = compile_plan(plan)
     except PlanCompilationError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
+    except Exception:
         logger.exception("Unexpected compile failure")
-        raise HTTPException(status_code=500, detail=f"Compilation failed: {e}")
+        raise HTTPException(status_code=500, detail="Compilation failed; see server log.")
     return {"status": "success", "compiled_script": script}
 
 

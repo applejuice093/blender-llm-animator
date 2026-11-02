@@ -1,57 +1,60 @@
+"""Headless Blender check used by the dataset factory's validate/repair loop."""
+
 import os
 import subprocess
 import tempfile
+
 from config import BLEND_FILE, BLENDER_EXECUTABLE, BLENDER_VALIDATION_TIMEOUT
 
+# Blender can print thousands of lines of add-on noise; the repair prompt only
+# needs the tail, where the Python traceback is.
+MAX_ERROR_CHARS = 4000
+
+
+def _tail(text: str, limit: int = MAX_ERROR_CHARS) -> str:
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    return "...(truncated)...\n" + text[-limit:]
+
+
 def validate_script_headlessly(script_code: str) -> tuple[bool, str]:
+    """Run ``script_code`` in a background Blender instance.
+
+    Returns ``(True, "")`` if the script finished cleanly, otherwise
+    ``(False, message)`` where ``message`` ends with Blender's traceback.
     """
-    Runs a blender script in a headless blender instance.
-    Returns (True, "") if successful.
-    Returns (False, error_traceback) if Blender throws an error.
-    """
-    
-    # We append a sys.exit(0) at the end of the script to ensure Blender quits cleanly 
-    # if it reaches the end without exceptions.
+    # Appending sys.exit(0) makes Blender quit cleanly when the script reaches
+    # the end without raising; an exception leaves a non-zero exit code.
     safe_script = script_code + "\n\nimport sys\nsys.exit(0)\n"
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
         f.write(safe_script)
         temp_path = f.name
-        
+
     cmd = [BLENDER_EXECUTABLE, "-b"]
-    
     if BLEND_FILE and os.path.exists(BLEND_FILE):
         cmd.append(BLEND_FILE)
-        
     cmd.extend(["-P", temp_path])
-    
+
     try:
-        # Run blender
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=BLENDER_VALIDATION_TIMEOUT)
-        
-        # Cleanup temp file
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-            
-        if result.returncode == 0:
-            return True, ""
-            
-        # If it failed, extract the traceback from stderr or stdout
-        error_output = result.stderr if result.stderr else result.stdout
-        return False, f"Blender exited with code {result.returncode}.\n{error_output}"
-        
     except subprocess.TimeoutExpired:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
         return False, f"Blender validation timed out after {BLENDER_VALIDATION_TIMEOUT} seconds."
     except FileNotFoundError:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
         return False, (
             f"Blender executable not found at {BLENDER_EXECUTABLE!r}. "
             "Install Blender or set BLENDER_EXECUTABLE."
         )
-    except Exception as e:
-        if os.path.exists(temp_path):
+    except OSError as e:
+        return False, f"Failed to run Blender subprocess: {e}"
+    finally:
+        try:
             os.remove(temp_path)
-        return False, f"Failed to run Blender subprocess: {str(e)}"
+        except OSError:
+            pass
+
+    if result.returncode == 0:
+        return True, ""
+    error_output = result.stderr or result.stdout
+    return False, f"Blender exited with code {result.returncode}.\n{_tail(error_output)}"
