@@ -137,9 +137,9 @@ def add_knowledge(req: AddKnowledgeRequest):
     doc_id = req.doc_id or str(uuid.uuid4())
     try:
         rag_manager.add_document(doc_id=doc_id, content=req.content, metadata=req.metadata)
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to add knowledge document %s", doc_id)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Could not store the document; see server log.")
     return {"status": "success", "doc_id": doc_id}
 
 
@@ -148,9 +148,9 @@ def query_knowledge(req: QueryKnowledgeRequest):
     """Semantic search over the knowledge store; returns raw Chroma results."""
     try:
         return rag_manager.query(query_text=req.query, n_results=req.n_results)
-    except Exception as e:
+    except Exception:
         logger.exception("Knowledge query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Knowledge query failed; see server log.")
 
 
 # --- Dataset factory ---------------------------------------------------------
@@ -161,9 +161,9 @@ def api_generate_dataset(req: DatasetRequest):
     logger.info("Generating dataset batch: character=%s prompts=%d", req.character, len(req.prompts))
     try:
         result = generate_dataset_batch(req.character, req.prompts, req.scene_context)
-    except Exception as e:
+    except Exception:
         logger.exception("Dataset generation failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Dataset generation failed; see server log.")
     return {"status": "success", "data": result}
 
 
@@ -172,9 +172,9 @@ def api_list_datasets():
     """List generated ``*.jsonl`` batches with record counts."""
     try:
         return {"status": "success", "datasets": list_datasets()}
-    except Exception as e:
+    except Exception:
         logger.exception("Listing datasets failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Could not list datasets; see server log.")
 
 
 @app.get("/api/finetune/status")
@@ -200,9 +200,9 @@ def create_plan_endpoint(req: AnimationPlanRequest):
     """Ask the LLM for an Animation Intent Plan (falls back to a mock plan)."""
     try:
         plan_dict = generate_plan(req.character, req.request_text, req.scene_context)
-    except Exception as e:
+    except Exception:
         logger.exception("Plan generation failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Plan generation failed; see server log.")
     # Tell the UI up front whether /api/compile will accept this plan, instead
     # of letting the user discover a schema problem one click later.
     try:
@@ -229,9 +229,9 @@ def compile_plan_endpoint(plan: dict = Body(..., description="Animation Intent P
         script = compile_plan(plan)
     except PlanCompilationError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
+    except Exception:
         logger.exception("Unexpected compile failure")
-        raise HTTPException(status_code=500, detail=f"Compilation failed: {e}")
+        raise HTTPException(status_code=500, detail="Compilation failed; see server log.")
     return {"status": "success", "compiled_script": script}
 
 

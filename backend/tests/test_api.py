@@ -120,3 +120,13 @@ def test_dataset_rejects_oversized_prompt(client):
 def test_query_rejects_oversized_text(client):
     res = client.post("/api/knowledge/query", json={"query": "x" * 4001})
     assert res.status_code == 422
+
+
+def test_internal_errors_do_not_leak_details(client, monkeypatch):
+    def boom(*a):
+        raise RuntimeError("secret path /home/me/.env")
+
+    monkeypatch.setattr(main, "generate_plan", boom)
+    res = client.post("/api/plan", json={"character": "Aiko", "request_text": "wave"})
+    assert res.status_code == 500
+    assert "secret" not in res.text
