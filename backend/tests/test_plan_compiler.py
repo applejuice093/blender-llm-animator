@@ -71,3 +71,18 @@ def test_newlines_in_llm_strings_cannot_inject_code():
     calls = [n.func.attr for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)]
     assert "system" not in calls
     assert not any(line.startswith("evil(") for line in script.splitlines())
+
+
+def test_gestures_are_clamped_to_clip_length():
+    plan = {
+        "character": "Aiko",
+        "duration_seconds": 2.0,
+        "gestures": [
+            {"type": "wave", "start": 1.0, "end": 5.0},
+            {"type": "bow", "start": 3.0, "end": 4.0},
+        ],
+    }
+    script = compile_plan(plan)
+    assert "# Gesture: wave from 1.0s (f24) to 2.0s (f48)" in script
+    assert "# Skipped gesture bow" in script
+    assert "# Gesture: bow" not in script

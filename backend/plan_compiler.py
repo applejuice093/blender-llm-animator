@@ -62,12 +62,20 @@ def compile_plan(plan: Union[AnimationIntentPlan, dict]) -> str:
         )
 
     # Emit gestures in chronological order regardless of how the LLM listed them.
+    # Gestures outside the clip would key frames past scene.frame_end, so drop
+    # ones that start after the end and clamp ones that overrun it.
     for g in sorted(plan.gestures or [], key=lambda g: (g.start, g.end)):
+        if g.start >= plan.duration_seconds:
+            script += (
+                f"# Skipped gesture {semantic_tools._comment(g.type)}: starts at {g.start}s, "
+                f"after the {plan.duration_seconds}s clip ends\n\n"
+            )
+            continue
         script += semantic_tools.gesture(
             plan.character,
             g.type,
             g.start,
-            g.end,
+            min(g.end, plan.duration_seconds),
             g.intensity,
             manifest,
         )
