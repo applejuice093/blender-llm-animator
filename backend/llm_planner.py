@@ -132,10 +132,10 @@ def call_ollama(prompt: str, system: str) -> dict:
             result = json.loads(response.read().decode('utf-8'))
             
             # Check response first
-            resp_text = result.get("response", "").strip()
+            resp_text = (result.get("response") or "").strip()
             if not resp_text:
                 # Fall back to thinking field (for reasoning models)
-                resp_text = result.get("thinking", "").strip()
+                resp_text = (result.get("thinking") or "").strip()
                 
             if not resp_text:
                 logger.warning("Ollama returned empty response and thinking fields.")
